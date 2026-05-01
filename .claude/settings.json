@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(py:*)",
+      "Bash(pip:*)",
+      "Bash(pip3:*)",
+      "Bash(python -m:*)",
+      "Bash(python -m pip:*)",
+      "Bash(python -m venv:*)",
+      "Bash(python video.py:*)",
+      "Bash(py video.py:*)",
+      "Read(./output/**)",
+      "Read(./src/**)",
+      "Write(./output/**)",
+      "Edit(./src/**)",
+      "Edit(./video.py)"
+    ],
+    "deny": [
+      "Read(./.env)"
+    ]
+  }
+}

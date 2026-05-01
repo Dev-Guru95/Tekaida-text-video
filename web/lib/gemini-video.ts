@@ -34,6 +34,13 @@ async function veoRetry<T>(
   throw lastErr;
 }
 
+function isVeoOverloadError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : JSON.stringify(err);
+  return /UNAVAILABLE|"code"\s*:\s*503|\b503\b|high demand|temporarily unavailable/i.test(
+    msg,
+  );
+}
+
 export async function generateVeo(opts: {
   shot: Shot;
   destPath: string;
@@ -45,15 +52,17 @@ export async function generateVeo(opts: {
 
   const client = new GoogleGenAI({ apiKey });
   const model = process.env.VEO_MODEL || "veo-3.0-generate-001";
-  opts.onStatus?.("submitting to Veo");
-
   const aspectRatio: "16:9" | "9:16" =
     opts.shot.aspect_ratio === "9:16" ? "9:16" : "16:9";
 
-  type VeoOperation = Awaited<ReturnType<typeof client.models.generateVideos>>;
-  let operation: VeoOperation;
+  // One outer try/catch translates ANY 503/UNAVAILABLE thrown anywhere in
+  // submit / poll / download into a single user-facing message instead of
+  // leaking Google's raw error JSON.
   try {
-    operation = await veoRetry<VeoOperation>(
+    opts.onStatus?.("submitting to Veo");
+
+    type VeoOperation = Awaited<ReturnType<typeof client.models.generateVideos>>;
+    let operation: VeoOperation = await veoRetry<VeoOperation>(
       () =>
         client.models.generateVideos({
           model,
@@ -61,58 +70,59 @@ export async function generateVeo(opts: {
           config: { aspectRatio, numberOfVideos: 1 },
         }),
       (attempt, total, msg) => {
-        console.log(`[veo] transient error (attempt ${attempt}/${total}): ${msg.slice(0, 200)}`);
+        console.log(`[veo] submit transient error (attempt ${attempt}/${total}): ${msg.slice(0, 200)}`);
         opts.onStatus?.(`Veo busy — retrying (${attempt}/${total})`);
       },
     );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/UNAVAILABLE|503|high demand/i.test(msg)) {
+
+    while (!operation.done) {
+      opts.onStatus?.("generating");
+      await new Promise((r) => setTimeout(r, POLL_MS));
+      operation = await veoRetry(
+        () => client.operations.getVideosOperation({ operation }),
+        (attempt, total, msg) => {
+          console.log(`[veo poll] transient error (attempt ${attempt}/${total}): ${msg.slice(0, 200)}`);
+          opts.onStatus?.(`Veo poll busy — retrying (${attempt}/${total})`);
+        },
+      );
+    }
+
+    const opError = (operation as { error?: unknown }).error;
+    if (opError) {
+      console.log(`[veo] operation.error: ${JSON.stringify(opError)}`);
+      // Re-throw so the outer catch can translate UNAVAILABLE specifically;
+      // anything else falls through to its raw message.
+      throw new Error(JSON.stringify(opError));
+    }
+
+    const generated = operation.response?.generatedVideos?.[0];
+    if (!generated?.video) {
+      console.log(
+        "[veo] empty response — full operation:",
+        JSON.stringify(operation, null, 2),
+      );
       throw new Error(
-        "Veo is currently overloaded by traffic on Google's side and we couldn't get through after several retries. " +
-          "Try again in a few minutes, or switch to a different provider in the picker.",
+        "Veo returned no video. This usually means Veo's safety filter rejected " +
+          "the prompt — common triggers: alcohol, drugs, violence, named people, " +
+          "branded products, or minors. Try rewording the prompt to remove sensitive content.",
+      );
+    }
+
+    opts.onStatus?.("downloading");
+    await mkdir(dirname(opts.destPath), { recursive: true });
+    await client.files.download({ file: generated.video, downloadPath: opts.destPath });
+
+    return { videoUrl: opts.publicUrl };
+  } catch (err) {
+    if (isVeoOverloadError(err)) {
+      throw new Error(
+        `Veo (${model}) is currently overloaded by traffic on Google's side. ` +
+          `We retried several times before giving up. Try again in a few minutes, ` +
+          `or switch to a different provider in the picker (HiggsField, Sora). ` +
+          `If this keeps happening, switch VEO_MODEL to "veo-3.0-fast-generate-001" — ` +
+          `the fast variant has higher capacity.`,
       );
     }
     throw err;
   }
-
-  while (!operation.done) {
-    opts.onStatus?.("generating");
-    await new Promise((r) => setTimeout(r, POLL_MS));
-    operation = await veoRetry(
-      () => client.operations.getVideosOperation({ operation }),
-      (attempt, total, msg) => {
-        console.log(`[veo poll] transient error (attempt ${attempt}/${total}): ${msg.slice(0, 200)}`);
-        opts.onStatus?.(`Veo poll busy — retrying (${attempt}/${total})`);
-      },
-    );
-  }
-
-  const opError = (operation as { error?: unknown }).error;
-  if (opError) {
-    console.log(`[veo] operation.error: ${JSON.stringify(opError)}`);
-    throw new Error(`Veo failed: ${JSON.stringify(opError)}`);
-  }
-
-  const generated = operation.response?.generatedVideos?.[0];
-  if (!generated?.video) {
-    // Veo's safety filters (RAI) silently produce an empty result instead of
-    // an explicit error. Dump the entire operation response so we can see
-    // what came back, then surface a helpful message to the user.
-    console.log(
-      "[veo] empty response — full operation:",
-      JSON.stringify(operation, null, 2),
-    );
-    throw new Error(
-      "Veo returned no video. This usually means Veo's safety filter rejected " +
-        "the prompt — common triggers: alcohol, drugs, violence, named people, " +
-        "branded products, or minors. Try rewording the prompt to remove sensitive content.",
-    );
-  }
-
-  opts.onStatus?.("downloading");
-  await mkdir(dirname(opts.destPath), { recursive: true });
-  await client.files.download({ file: generated.video, downloadPath: opts.destPath });
-
-  return { videoUrl: opts.publicUrl };
 }

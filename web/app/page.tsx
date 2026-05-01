@@ -111,7 +111,7 @@ export default function Page() {
     .filter((s): s is { url: string; index: number } => Boolean(s.url));
 
   const storyboardJsonUrl = board
-    ? `/output/${slugify(board.title)}/storyboard.json`
+    ? `/api/video/${slugify(board.title)}/storyboard.json`
     : null;
 
   return (

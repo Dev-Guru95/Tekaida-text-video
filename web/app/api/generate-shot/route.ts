@@ -41,7 +41,9 @@ export async function POST(req: NextRequest) {
         const slug = slugify(body.title);
         const filename = `shot-${String(body.index).padStart(2, "0")}.mp4`;
         const destPath = path.join(process.cwd(), "public", "output", slug, filename);
-        const publicUrl = `/output/${slug}/${filename}`;
+        // Served by /app/api/video/[...path]/route.ts — `public/` is build-time
+        // only in `next start`, so we stream from disk through an API route.
+        const publicUrl = `/api/video/${slug}/${filename}`;
 
         const onStatus = (status: string) => send({ type: "progress", status });
 

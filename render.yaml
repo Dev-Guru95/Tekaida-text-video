@@ -1,0 +1,39 @@
+# Render Blueprint — auto-configures the Web Service when this repo is connected.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: tekaida-text-video
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: web
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/providers
+    autoDeploy: true
+    envVars:
+      # --- Required: Gemini (used for the storyboard writer + Veo video) ---
+      # `sync: false` means Render asks for the value in the dashboard rather than
+      # syncing from this file. Never put secrets in render.yaml.
+      - key: GEMINI_API_KEY
+        sync: false
+
+      # --- Optional: OpenAI (Sora) ---
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # --- Optional: HiggsField (DoP + Seedance routes through here) ---
+      - key: HF_KEY
+        sync: false
+
+      # --- Non-secret model / endpoint defaults (safe to commit) ---
+      - key: GEMINI_MODEL
+        value: gemini-2.5-pro
+      - key: VEO_MODEL
+        value: veo-3.0-generate-001
+      - key: SORA_MODEL
+        value: sora-2
+      - key: HF_IMAGE_TO_VIDEO_ENDPOINT
+        value: higgsfield-ai/dop/standard
+      - key: SEEDANCE_IMAGE_TO_VIDEO_ENDPOINT
+        value: bytedance/seedance/v1/pro/image-to-video

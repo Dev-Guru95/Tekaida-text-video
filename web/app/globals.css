@@ -410,6 +410,70 @@ video {
   border: 1px solid var(--border);
 }
 
+/* ===== Output type selector ===== */
+
+.output-types {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+.output-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  transition: border-color 0.12s, transform 0.12s, box-shadow 0.12s;
+}
+.output-tab:hover { border-color: var(--border-2); }
+.output-tab.active {
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px rgba(var(--accent-2-glow), 0.10);
+  background: linear-gradient(180deg, var(--panel-3) 0%, rgba(61, 218, 224, 0.05) 100%);
+}
+.output-tab .output-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-strong);
+}
+.output-tab .output-tagline {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* ===== Image grid ===== */
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+.image-tile {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.image-tile img {
+  width: 100%;
+  border-radius: var(--radius);
+  display: block;
+  background: #000;
+  border: 1px solid var(--border);
+}
+
 /* ===== Action bar (download all / storyboard JSON) ===== */
 
 .action-bar {

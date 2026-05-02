@@ -11,6 +11,15 @@ const RETRY_DELAYS_MS = [5_000, 15_000, 30_000]; // 4 attempts total
  * ("This model is currently experiencing high demand"). Veo 3 is heavily
  * capacity-constrained, so we treat these as soft failures and back off.
  */
+function isHardQuotaError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : JSON.stringify(err);
+  // These aren't transient — retrying won't help. Spend caps and billing
+  // errors persist until the user raises the cap or pays.
+  return /spending cap|spend.cap|exceeded.*spending|billing|payment required|quota.*permanent/i.test(
+    msg,
+  );
+}
+
 async function veoRetry<T>(
   fn: () => Promise<T>,
   onRetry?: (attempt: number, total: number, msg: string) => void,
@@ -22,6 +31,8 @@ async function veoRetry<T>(
     } catch (err) {
       lastErr = err;
       const msg = err instanceof Error ? err.message : String(err);
+      // Hard quota / spend-cap errors are non-recoverable — fail fast.
+      if (isHardQuotaError(err)) throw err;
       const transient =
         /\b(503|429)\b/.test(msg) ||
         /UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|temporarily unavailable/i.test(msg);
@@ -114,6 +125,15 @@ export async function generateVeo(opts: {
 
     return { videoUrl: opts.publicUrl };
   } catch (err) {
+    if (isHardQuotaError(err)) {
+      throw new Error(
+        "Your Gemini project has hit its monthly spending cap on Google AI Studio. " +
+          "This is a hard limit you set on your Google project, not a Veo issue. " +
+          "Fix: go to https://ai.studio/spend, raise the project spend cap (or remove it), " +
+          "and try again. Alternatively, switch to HiggsField or OpenAI Sora in the picker — " +
+          "those run on different billing.",
+      );
+    }
     if (isVeoOverloadError(err)) {
       throw new Error(
         `Veo (${model}) is currently overloaded by traffic on Google's side. ` +

@@ -1,30 +1,43 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProviderInfo } from "@/lib/providers";
-import type { AspectRatio, ProviderKey, Shot, Storyboard, StreamEvent } from "@/lib/types";
-import { slugify } from "@/lib/types";
+import type {
+  AspectRatio,
+  OutputType,
+  ProviderKey,
+  Shot,
+  Storyboard,
+  StreamEvent,
+} from "@/lib/types";
+import { OUTPUT_TYPES, slugify } from "@/lib/types";
 
-type ShotState = {
-  status: string;
-  videoUrl?: string;
-  error?: string;
-};
+type ShotState = { status: string; videoUrl?: string; error?: string };
+type ImageItem = { index: number; url: string };
 
 const ASPECTS: AspectRatio[] = ["16:9", "9:16", "1:1", "4:3", "9:21"];
 
 export default function Page() {
+  const [outputType, setOutputType] = useState<OutputType>("video");
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [provider, setProvider] = useState<ProviderKey>("gemini");
   const [concept, setConcept] = useState("a lone astronaut walking across martian dunes at dawn");
   const [aspect, setAspect] = useState<AspectRatio | "">("16:9");
   const [shots, setShots] = useState(2);
+  const [imageCount, setImageCount] = useState(4);
   const [imageUrl, setImageUrl] = useState("");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Video result state
   const [board, setBoard] = useState<Storyboard | null>(null);
   const [shotStates, setShotStates] = useState<ShotState[]>([]);
+
+  // Image result state
+  const [images, setImages] = useState<ImageItem[]>([]);
+  const [imageStatus, setImageStatus] = useState<string>("");
+  const [imageTitle, setImageTitle] = useState<string>("");
 
   useEffect(() => {
     fetch("/api/providers")
@@ -37,74 +50,22 @@ export default function Page() {
       .catch((err) => setError(`could not load providers: ${err.message}`));
   }, []);
 
+  // Providers shown for the current output type
+  const visibleProviders = useMemo(
+    () => providers.filter((p) => p.supportedOutputs.includes(outputType)),
+    [providers, outputType],
+  );
+
+  // If the selected provider doesn't support the new type, switch automatically
+  useEffect(() => {
+    if (!visibleProviders.length) return;
+    if (!visibleProviders.find((p) => p.key === provider)) {
+      const firstReady = visibleProviders.find((p) => p.available && !p.cliOnly);
+      setProvider((firstReady ?? visibleProviders[0]!).key);
+    }
+  }, [visibleProviders, provider]);
+
   const selectedProvider = providers.find((p) => p.key === provider);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (busy) return;
-    setError(null);
-    setBoard(null);
-    setShotStates([]);
-
-    if (!selectedProvider?.available) {
-      setError(
-        `model not available: ${selectedProvider?.name ?? provider} — ${selectedProvider?.missingMessage ?? ""}`,
-      );
-      return;
-    }
-    if (selectedProvider.cliOnly) {
-      setError(`${selectedProvider.name} is CLI-only in this build. ${selectedProvider.missingMessage}`);
-      return;
-    }
-    if (selectedProvider.requiresImage && !imageUrl.trim()) {
-      setError(
-        `${selectedProvider.name} is an image-to-video model — paste a reference image URL into the field below before generating.`,
-      );
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const cleanedImageUrl = imageUrl.replace(/\s+/g, "").trim() || null;
-      const sbResp = await fetch("/api/storyboard", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          concept,
-          aspect: aspect || null,
-          shots,
-          imageUrl: cleanedImageUrl,
-        }),
-      });
-      const sbData = await sbResp.json();
-      if (!sbResp.ok) throw new Error(sbData.error || "storyboard failed");
-
-      const storyboard = sbData.storyboard as Storyboard;
-      setBoard(storyboard);
-      setShotStates(storyboard.shots.map(() => ({ status: "queued" })));
-
-      for (let i = 0; i < storyboard.shots.length; i++) {
-        const shot = storyboard.shots[i];
-        await streamShot({
-          provider,
-          shot,
-          title: storyboard.title,
-          index: i + 1,
-          onUpdate: (next) => {
-            setShotStates((prev) => {
-              const copy = [...prev];
-              copy[i] = { ...copy[i], ...next };
-              return copy;
-            });
-          },
-        });
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   const completedShots = shotStates
     .map((s, i) => ({ url: s.videoUrl, index: i + 1 }))
@@ -113,6 +74,131 @@ export default function Page() {
   const storyboardJsonUrl = board
     ? `/api/video/${slugify(board.title)}/storyboard.json`
     : null;
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    setError(null);
+
+    if (!selectedProvider?.available) {
+      setError(
+        `model not available: ${selectedProvider?.name ?? provider} — ${selectedProvider?.missingMessage ?? ""}`,
+      );
+      return;
+    }
+    if (selectedProvider.cliOnly) {
+      setError(`${selectedProvider.name} is CLI-only in this build.`);
+      return;
+    }
+    if (outputType === "video" && selectedProvider.requiresImage && !imageUrl.trim()) {
+      setError(
+        `${selectedProvider.name} is an image-to-video model — paste a reference image URL into the field below before generating.`,
+      );
+      return;
+    }
+
+    setBusy(true);
+    setBoard(null);
+    setShotStates([]);
+    setImages([]);
+    setImageStatus("");
+
+    try {
+      if (outputType === "video") {
+        await runVideoFlow();
+      } else if (outputType === "image") {
+        await runImageFlow();
+      } else {
+        // D / E / F land here once we add their endpoints. For now, friendly message.
+        setError(
+          `${OUTPUT_TYPES.find((o) => o.key === outputType)?.label} generation is coming next — currently only Video and Image are wired.`,
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runVideoFlow() {
+    const cleanedImageUrl = imageUrl.replace(/\s+/g, "").trim() || null;
+    const sbResp = await fetch("/api/storyboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        concept,
+        aspect: aspect || null,
+        shots,
+        imageUrl: cleanedImageUrl,
+      }),
+    });
+    const sbData = await sbResp.json();
+    if (!sbResp.ok) throw new Error(sbData.error || "storyboard failed");
+
+    const storyboard = sbData.storyboard as Storyboard;
+    setBoard(storyboard);
+    setShotStates(storyboard.shots.map(() => ({ status: "queued" })));
+
+    for (let i = 0; i < storyboard.shots.length; i++) {
+      const shot = storyboard.shots[i]!;
+      await streamShot({
+        provider,
+        shot,
+        title: storyboard.title,
+        index: i + 1,
+        onUpdate: (next) =>
+          setShotStates((prev) => {
+            const copy = [...prev];
+            copy[i] = { ...copy[i]!, ...next };
+            return copy;
+          }),
+      });
+    }
+  }
+
+  async function runImageFlow() {
+    const title = concept.split(/\s+/).slice(0, 5).join(" ") || "image";
+    setImageTitle(title);
+    setImageStatus("submitting");
+
+    const resp = await fetch("/api/generate-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider,
+        prompt: concept,
+        title,
+        count: imageCount,
+        aspect: aspect || "1:1",
+      }),
+    });
+    if (!resp.ok || !resp.body) throw new Error(`request failed: HTTP ${resp.status}`);
+
+    const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const ev = JSON.parse(line);
+          if (ev.type === "progress") setImageStatus(ev.status);
+          else if (ev.type === "image")
+            setImages((prev) => [...prev, { index: ev.index, url: ev.url }]);
+          else if (ev.type === "error") throw new Error(ev.message);
+        } catch (innerErr) {
+          if (innerErr instanceof Error) throw innerErr;
+        }
+      }
+    }
+    setImageStatus("ready");
+  }
 
   return (
     <main>
@@ -131,30 +217,49 @@ export default function Page() {
         </div>
         <div className="brand-text">
           <h1>Tekaida</h1>
-          <span className="brand-sub">text-to-video generator</span>
+          <span className="brand-sub">multi-modal generative studio</span>
         </div>
-        <span className="brand-tag">v0.2 · beta</span>
+        <span className="brand-tag">v0.3 · beta</span>
       </header>
       <p className="subtitle">
-        Turn a one-sentence concept into a multi-shot short film. Powered by{" "}
-        <strong>Gemini Veo</strong>, <strong>OpenAI Sora</strong>, <strong>HiggsField</strong>, and <strong>Seedance</strong>.
+        Turn a one-sentence concept into video, images, decks, infographics, or illustrated books.
+        Powered by <strong>Gemini</strong>, <strong>OpenAI</strong>, <strong>HiggsField</strong>, and <strong>Seedance</strong>.
       </p>
 
       <form className="panel" onSubmit={onSubmit}>
+        {/* Output type selector */}
+        <div className="field">
+          <label>output type</label>
+          <div className="output-types">
+            {OUTPUT_TYPES.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                className={`output-tab ${outputType === t.key ? "active" : ""}`}
+                onClick={() => setOutputType(t.key)}
+                title={t.tagline}
+              >
+                <span className="output-label">{t.label}</span>
+                <span className="output-tagline">{t.tagline}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="field">
           <label htmlFor="concept">concept</label>
           <textarea
             id="concept"
             value={concept}
             onChange={(e) => setConcept(e.target.value)}
-            placeholder="describe the video in one sentence"
+            placeholder="describe what you want to generate in one sentence"
           />
         </div>
 
         <div className="field">
-          <label>video provider</label>
+          <label>provider</label>
           <div className="providers">
-            {providers.map((p) => {
+            {visibleProviders.map((p) => {
               const disabled = !p.available || p.cliOnly;
               const status = p.cliOnly ? "cli" : p.available ? "ready" : "missing";
               const statusLabel = p.cliOnly ? "CLI only" : p.available ? "ready" : "no key";
@@ -177,11 +282,6 @@ export default function Page() {
               <strong>model not available:</strong> {selectedProvider.name} — {selectedProvider.missingMessage}
             </div>
           )}
-          {selectedProvider?.cliOnly && (
-            <div className="error" style={{ borderColor: "rgba(251, 191, 36, 0.4)", color: "var(--warn)", background: "rgba(251, 191, 36, 0.06)" }}>
-              {selectedProvider.missingMessage}
-            </div>
-          )}
         </div>
 
         <div className="row">
@@ -198,48 +298,62 @@ export default function Page() {
               ))}
             </select>
           </div>
-          <div className="field">
-            <label htmlFor="shots">shots (1-4)</label>
-            <input
-              id="shots"
-              type="number"
-              min={1}
-              max={4}
-              value={shots}
-              onChange={(e) => setShots(Math.max(1, Math.min(4, Number(e.target.value) || 1)))}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="image">
-              reference image URL {selectedProvider?.requiresImage ? "(required)" : "(optional)"}
-            </label>
-            <input
-              id="image"
-              type="url"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="https://example.com/photo.jpg"
-              required={selectedProvider?.requiresImage}
-              style={selectedProvider?.requiresImage && !imageUrl.trim() ? { borderColor: "var(--warn)" } : undefined}
-            />
-            <small style={{ color: "var(--muted)", display: "block", marginTop: 6, fontSize: 12 }}>
-              Direct image URL (ends in .jpg / .png / .webp). NOT a webpage URL —
-              right-click an image in your browser → <em>Copy image address</em>.
-              <br />
-              ✓ <code>https://images.unsplash.com/photo-...</code>
-              <br />
-              ✗ <code>https://unsplash.com/photos/...</code> or <code>/s/photos/...</code> (these are HTML pages)
-            </small>
-          </div>
+          {outputType === "video" && (
+            <div className="field">
+              <label htmlFor="shots">shots (1-4)</label>
+              <input
+                id="shots"
+                type="number"
+                min={1}
+                max={4}
+                value={shots}
+                onChange={(e) => setShots(Math.max(1, Math.min(4, Number(e.target.value) || 1)))}
+              />
+            </div>
+          )}
+          {outputType === "image" && (
+            <div className="field">
+              <label htmlFor="count">how many images (1-4)</label>
+              <input
+                id="count"
+                type="number"
+                min={1}
+                max={4}
+                value={imageCount}
+                onChange={(e) => setImageCount(Math.max(1, Math.min(4, Number(e.target.value) || 1)))}
+              />
+            </div>
+          )}
+          {outputType === "video" && (
+            <div className="field">
+              <label htmlFor="image">
+                reference image URL {selectedProvider?.requiresImage ? "(required)" : "(optional)"}
+              </label>
+              <input
+                id="image"
+                type="url"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://example.com/photo.jpg"
+                required={selectedProvider?.requiresImage}
+                style={selectedProvider?.requiresImage && !imageUrl.trim() ? { borderColor: "var(--warn)" } : undefined}
+              />
+            </div>
+          )}
         </div>
 
-        <button className="btn" type="submit" disabled={busy || !selectedProvider?.available || selectedProvider?.cliOnly}>
-          {busy ? "working…" : "generate"}
+        <button
+          className="btn"
+          type="submit"
+          disabled={busy || !selectedProvider?.available || selectedProvider?.cliOnly}
+        >
+          {busy ? "working…" : `generate ${OUTPUT_TYPES.find((o) => o.key === outputType)?.label.toLowerCase()}`}
         </button>
         {error && <div className="error">{error}</div>}
       </form>
 
-      {board && (
+      {/* Video results */}
+      {board && outputType === "video" && (
         <>
           <div className="board-header">
             <h2>{board.title}</h2>
@@ -262,7 +376,7 @@ export default function Page() {
                 <button
                   className="btn ghost"
                   type="button"
-                  onClick={() => downloadAll(completedShots, slugify(board.title))}
+                  onClick={() => downloadAll(completedShots, slugify(board.title), "mp4")}
                 >
                   ⤓ Download all videos ({completedShots.length})
                 </button>
@@ -280,23 +394,62 @@ export default function Page() {
           )}
         </>
       )}
+
+      {/* Image results */}
+      {outputType === "image" && (images.length > 0 || imageStatus) && (
+        <>
+          <div className="board-header">
+            <h2>{imageTitle || concept}</h2>
+            <p>
+              {images.length} image{images.length === 1 ? "" : "s"} generated via {selectedProvider?.name}
+              {imageStatus && imageStatus !== "ready" ? ` · ${imageStatus}` : ""}
+            </p>
+          </div>
+          <div className="image-grid">
+            {images.map((img) => (
+              <div key={img.index} className="image-tile">
+                <img src={img.url} alt={`Generated image ${img.index}`} />
+                <div className="shot-actions">
+                  <a
+                    className="btn primary sm"
+                    href={img.url}
+                    download={`${slugify(imageTitle || "image")}-${String(img.index).padStart(2, "0")}.png`}
+                  >
+                    ⤓ Download PNG
+                  </a>
+                  <a className="btn ghost sm" href={img.url} target="_blank" rel="noreferrer">
+                    ↗ Open
+                  </a>
+                </div>
+              </div>
+            ))}
+            {!images.length && imageStatus && (
+              <div className="shot-status">
+                <span className="pulse" /> {imageStatus}
+              </div>
+            )}
+          </div>
+          {images.length > 0 && (
+            <div className="action-bar">
+              <button
+                className="btn ghost"
+                type="button"
+                onClick={() =>
+                  downloadAll(
+                    images.map((i) => ({ url: i.url, index: i.index })),
+                    slugify(imageTitle || "image"),
+                    "png",
+                  )
+                }
+              >
+                ⤓ Download all images ({images.length})
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </main>
   );
-}
-
-function downloadAll(items: { url: string; index: number }[], slug: string) {
-  // Trigger a sequence of <a download> clicks. Browsers throttle this but
-  // it works for a handful of files which is the typical case here.
-  items.forEach((item, i) => {
-    setTimeout(() => {
-      const a = document.createElement("a");
-      a.href = item.url;
-      a.download = `${slug}-shot-${String(item.index).padStart(2, "0")}.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    }, i * 400);
-  });
 }
 
 function ShotCard({
@@ -347,6 +500,23 @@ function ShotCard({
       )}
     </div>
   );
+}
+
+function downloadAll(
+  items: { url: string; index: number }[],
+  slug: string,
+  ext: "mp4" | "png",
+) {
+  items.forEach((item, i) => {
+    setTimeout(() => {
+      const a = document.createElement("a");
+      a.href = item.url;
+      a.download = `${slug}-${String(item.index).padStart(2, "0")}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }, i * 400);
+  });
 }
 
 async function streamShot(opts: {

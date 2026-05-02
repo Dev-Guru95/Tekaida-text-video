@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProviderInfo } from "@/lib/providers";
 import type {
   AspectRatio,
@@ -11,6 +11,8 @@ import type {
   StreamEvent,
 } from "@/lib/types";
 import { OUTPUT_TYPES, slugify } from "@/lib/types";
+import { AuthButton } from "@/components/AuthButton";
+import { HistorySidebar, type HistoryItem } from "@/components/HistorySidebar";
 
 type ShotState = { status: string; videoUrl?: string; error?: string };
 type ImageItem = { index: number; url: string };
@@ -75,6 +77,38 @@ export default function Page() {
 
   const [slideCount, setSlideCount] = useState(8);
   const [chapterCount, setChapterCount] = useState(5);
+
+  // History (Supabase) — refreshKey bumps after each successful save
+  const [historyKey, setHistoryKey] = useState(0);
+
+  const recordGeneration = useCallback(
+    async (entry: {
+      output_type: OutputType;
+      title?: string;
+      concept: string;
+      provider: string;
+      output_url?: string;
+      metadata?: Record<string, unknown>;
+    }) => {
+      try {
+        const r = await fetch("/api/history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(entry),
+        });
+        if (r.ok) setHistoryKey((k) => k + 1);
+      } catch {
+        // Memory feature is optional; never block generation flow on history failures.
+      }
+    },
+    [],
+  );
+
+  const restoreHistoryItem = useCallback((item: HistoryItem) => {
+    setOutputType(item.output_type);
+    setConcept(item.concept);
+    setError(null);
+  }, []);
 
   useEffect(() => {
     fetch("/api/providers")
@@ -199,6 +233,14 @@ export default function Page() {
           }),
       });
     }
+    await recordGeneration({
+      output_type: "video",
+      title: storyboard.title,
+      concept,
+      provider,
+      output_url: `/api/video/${slugify(storyboard.title)}/shot-01.mp4`,
+      metadata: { shotCount: storyboard.shots.length },
+    });
   }
 
   async function runBookFlow() {
@@ -224,7 +266,18 @@ export default function Page() {
         try {
           const ev = JSON.parse(line);
           if (ev.type === "progress") setBookStatus(ev.status);
-          else if (ev.type === "book") setBook(ev as BookResult);
+          else if (ev.type === "book") {
+            const bk = ev as BookResult;
+            setBook(bk);
+            recordGeneration({
+              output_type: "book",
+              title: bk.title,
+              concept,
+              provider: "gemini",
+              output_url: bk.downloadUrl,
+              metadata: { chapterCount: bk.chapterCount },
+            });
+          }
           else if (ev.type === "error") throw new Error(ev.message);
         } catch (innerErr) {
           if (innerErr instanceof Error) throw innerErr;
@@ -257,7 +310,18 @@ export default function Page() {
         try {
           const ev = JSON.parse(line);
           if (ev.type === "progress") setInfographicStatus(ev.status);
-          else if (ev.type === "infographic") setInfographic(ev as InfographicResult);
+          else if (ev.type === "infographic") {
+            const ig = ev as InfographicResult;
+            setInfographic(ig);
+            recordGeneration({
+              output_type: "infographic",
+              title: ig.title,
+              concept,
+              provider: "gemini",
+              output_url: ig.pngUrl ?? ig.svgUrl,
+              metadata: { layout: ig.layout, hasPng: Boolean(ig.pngUrl) },
+            });
+          }
           else if (ev.type === "error") throw new Error(ev.message);
         } catch (innerErr) {
           if (innerErr instanceof Error) throw innerErr;
@@ -290,7 +354,18 @@ export default function Page() {
         try {
           const ev = JSON.parse(line);
           if (ev.type === "progress") setDeckStatus(ev.status);
-          else if (ev.type === "deck") setDeck(ev as DeckResult);
+          else if (ev.type === "deck") {
+            const d = ev as DeckResult;
+            setDeck(d);
+            recordGeneration({
+              output_type: "deck",
+              title: d.title,
+              concept,
+              provider: "gemini",
+              output_url: d.downloadUrl,
+              metadata: { slideCount: d.slideCount },
+            });
+          }
           else if (ev.type === "error") throw new Error(ev.message);
         } catch (innerErr) {
           if (innerErr instanceof Error) throw innerErr;
@@ -332,8 +407,18 @@ export default function Page() {
         try {
           const ev = JSON.parse(line);
           if (ev.type === "progress") setImageStatus(ev.status);
-          else if (ev.type === "image")
+          else if (ev.type === "image") {
             setImages((prev) => [...prev, { index: ev.index, url: ev.url }]);
+            if (ev.index === 1) {
+              recordGeneration({
+                output_type: "image",
+                title,
+                concept,
+                provider,
+                output_url: ev.url,
+              });
+            }
+          }
           else if (ev.type === "error") throw new Error(ev.message);
         } catch (innerErr) {
           if (innerErr instanceof Error) throw innerErr;
@@ -344,7 +429,9 @@ export default function Page() {
   }
 
   return (
-    <main>
+    <main className="layout-grid">
+      <HistorySidebar refreshKey={historyKey} onRestore={restoreHistoryItem} />
+      <div className="layout-main">
       <header className="brand">
         <div className="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none">
@@ -362,7 +449,8 @@ export default function Page() {
           <h1>Tekaida</h1>
           <span className="brand-sub">multi-modal generative studio</span>
         </div>
-        <span className="brand-tag">v0.3 · beta</span>
+        <AuthButton onUserChange={() => setHistoryKey((k) => k + 1)} />
+        <span className="brand-tag">v0.4 · beta</span>
       </header>
       <p className="subtitle">
         Turn a one-sentence concept into video, images, decks, infographics, or illustrated books.
@@ -752,6 +840,7 @@ export default function Page() {
           )}
         </>
       )}
+      </div>
     </main>
   );
 }

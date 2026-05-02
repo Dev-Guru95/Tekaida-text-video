@@ -26,6 +26,15 @@ services:
       - key: HF_KEY
         sync: false
 
+      # --- Optional: Supabase (enables sign-in + cross-session memory) ---
+      # If left blank the app stays anonymous and history is hidden.
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
       # --- Non-secret model / endpoint defaults (safe to commit) ---
       - key: GEMINI_MODEL
         value: gemini-2.5-pro

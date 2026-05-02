@@ -14,6 +14,28 @@ import { OUTPUT_TYPES, slugify } from "@/lib/types";
 
 type ShotState = { status: string; videoUrl?: string; error?: string };
 type ImageItem = { index: number; url: string };
+type DeckResult = {
+  title: string;
+  subtitle: string;
+  slideCount: number;
+  downloadUrl: string;
+  outline: { title: string; bullets: string[] }[];
+};
+type InfographicResult = {
+  title: string;
+  subtitle: string;
+  layout: string;
+  points: { heading: string; value: string; detail: string }[];
+  svgUrl: string;
+  pngUrl?: string;
+};
+type BookResult = {
+  title: string;
+  subtitle: string;
+  chapterCount: number;
+  chapters: { title: string }[];
+  downloadUrl: string;
+};
 
 const ASPECTS: AspectRatio[] = ["16:9", "9:16", "1:1", "4:3", "9:21"];
 
@@ -38,6 +60,21 @@ export default function Page() {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [imageStatus, setImageStatus] = useState<string>("");
   const [imageTitle, setImageTitle] = useState<string>("");
+
+  // Deck result state
+  const [deck, setDeck] = useState<DeckResult | null>(null);
+  const [deckStatus, setDeckStatus] = useState<string>("");
+
+  // Infographic result state
+  const [infographic, setInfographic] = useState<InfographicResult | null>(null);
+  const [infographicStatus, setInfographicStatus] = useState<string>("");
+
+  // Book result state
+  const [book, setBook] = useState<BookResult | null>(null);
+  const [bookStatus, setBookStatus] = useState<string>("");
+
+  const [slideCount, setSlideCount] = useState(8);
+  const [chapterCount, setChapterCount] = useState(5);
 
   useEffect(() => {
     fetch("/api/providers")
@@ -102,17 +139,24 @@ export default function Page() {
     setShotStates([]);
     setImages([]);
     setImageStatus("");
+    setDeck(null);
+    setDeckStatus("");
+    setInfographic(null);
+    setInfographicStatus("");
+    setBook(null);
+    setBookStatus("");
 
     try {
       if (outputType === "video") {
         await runVideoFlow();
       } else if (outputType === "image") {
         await runImageFlow();
-      } else {
-        // D / E / F land here once we add their endpoints. For now, friendly message.
-        setError(
-          `${OUTPUT_TYPES.find((o) => o.key === outputType)?.label} generation is coming next — currently only Video and Image are wired.`,
-        );
+      } else if (outputType === "deck") {
+        await runDeckFlow();
+      } else if (outputType === "infographic") {
+        await runInfographicFlow();
+      } else if (outputType === "book") {
+        await runBookFlow();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -155,6 +199,105 @@ export default function Page() {
           }),
       });
     }
+  }
+
+  async function runBookFlow() {
+    setBookStatus("submitting");
+    const resp = await fetch("/api/generate-book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ concept, chapterCount }),
+    });
+    if (!resp.ok || !resp.body) throw new Error(`request failed: HTTP ${resp.status}`);
+
+    const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const ev = JSON.parse(line);
+          if (ev.type === "progress") setBookStatus(ev.status);
+          else if (ev.type === "book") setBook(ev as BookResult);
+          else if (ev.type === "error") throw new Error(ev.message);
+        } catch (innerErr) {
+          if (innerErr instanceof Error) throw innerErr;
+        }
+      }
+    }
+    setBookStatus("ready");
+  }
+
+  async function runInfographicFlow() {
+    setInfographicStatus("submitting");
+    const resp = await fetch("/api/generate-infographic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ concept, renderImage: true }),
+    });
+    if (!resp.ok || !resp.body) throw new Error(`request failed: HTTP ${resp.status}`);
+
+    const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const ev = JSON.parse(line);
+          if (ev.type === "progress") setInfographicStatus(ev.status);
+          else if (ev.type === "infographic") setInfographic(ev as InfographicResult);
+          else if (ev.type === "error") throw new Error(ev.message);
+        } catch (innerErr) {
+          if (innerErr instanceof Error) throw innerErr;
+        }
+      }
+    }
+    setInfographicStatus("ready");
+  }
+
+  async function runDeckFlow() {
+    setDeckStatus("submitting");
+    const resp = await fetch("/api/generate-deck", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ concept, slideCount }),
+    });
+    if (!resp.ok || !resp.body) throw new Error(`request failed: HTTP ${resp.status}`);
+
+    const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const ev = JSON.parse(line);
+          if (ev.type === "progress") setDeckStatus(ev.status);
+          else if (ev.type === "deck") setDeck(ev as DeckResult);
+          else if (ev.type === "error") throw new Error(ev.message);
+        } catch (innerErr) {
+          if (innerErr instanceof Error) throw innerErr;
+        }
+      }
+    }
+    setDeckStatus("ready");
   }
 
   async function runImageFlow() {
@@ -324,6 +467,32 @@ export default function Page() {
               />
             </div>
           )}
+          {outputType === "deck" && (
+            <div className="field">
+              <label htmlFor="slides-count">slides (4-12)</label>
+              <input
+                id="slides-count"
+                type="number"
+                min={4}
+                max={12}
+                value={slideCount}
+                onChange={(e) => setSlideCount(Math.max(4, Math.min(12, Number(e.target.value) || 8)))}
+              />
+            </div>
+          )}
+          {outputType === "book" && (
+            <div className="field">
+              <label htmlFor="chapter-count">chapters (3-8)</label>
+              <input
+                id="chapter-count"
+                type="number"
+                min={3}
+                max={8}
+                value={chapterCount}
+                onChange={(e) => setChapterCount(Math.max(3, Math.min(8, Number(e.target.value) || 5)))}
+              />
+            </div>
+          )}
           {outputType === "video" && (
             <div className="field">
               <label htmlFor="image">
@@ -390,6 +559,141 @@ export default function Page() {
                   ⤓ Download storyboard.json
                 </a>
               )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Book results */}
+      {outputType === "book" && (book || bookStatus) && (
+        <>
+          <div className="board-header">
+            <h2>{book?.title ?? "Generating illustrated book"}</h2>
+            <p>
+              {book
+                ? `${book.subtitle} · ${book.chapterCount} chapters`
+                : bookStatus || "starting…"}
+            </p>
+          </div>
+          {book ? (
+            <>
+              <div className="deck-outline">
+                {book.chapters.map((c, i) => (
+                  <div key={i} className="deck-slide-card">
+                    <div className="shot-header">
+                      <span className="shot-num">CH{String(i + 1).padStart(2, "0")}</span>
+                      <span className="label">{c.title}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="action-bar">
+                <a className="btn" href={book.downloadUrl} download={`${slugify(book.title)}.pdf`}>
+                  ⤓ Download PDF
+                </a>
+                <a className="btn ghost" href={book.downloadUrl} target="_blank" rel="noreferrer">
+                  ↗ Open in browser
+                </a>
+              </div>
+            </>
+          ) : (
+            <div className="shot-status">
+              <span className="pulse" /> {bookStatus}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Infographic results */}
+      {outputType === "infographic" && (infographic || infographicStatus) && (
+        <>
+          <div className="board-header">
+            <h2>{infographic?.title ?? "Generating infographic"}</h2>
+            <p>
+              {infographic
+                ? `${infographic.subtitle} · ${infographic.layout}`
+                : infographicStatus || "starting…"}
+            </p>
+          </div>
+          {infographic ? (
+            <>
+              <div className="infographic-pair">
+                <div className="image-tile">
+                  <div className="tile-label">SVG (vector)</div>
+                  <img src={infographic.svgUrl} alt={`${infographic.title} — SVG`} />
+                  <div className="shot-actions">
+                    <a className="btn primary sm" href={infographic.svgUrl} download={`${slugify(infographic.title)}.svg`}>
+                      ⤓ Download SVG
+                    </a>
+                    <a className="btn ghost sm" href={infographic.svgUrl} target="_blank" rel="noreferrer">
+                      ↗ Open
+                    </a>
+                  </div>
+                </div>
+                {infographic.pngUrl && (
+                  <div className="image-tile">
+                    <div className="tile-label">PNG (Imagen render)</div>
+                    <img src={infographic.pngUrl} alt={`${infographic.title} — PNG`} />
+                    <div className="shot-actions">
+                      <a className="btn primary sm" href={infographic.pngUrl} download={`${slugify(infographic.title)}.png`}>
+                        ⤓ Download PNG
+                      </a>
+                      <a className="btn ghost sm" href={infographic.pngUrl} target="_blank" rel="noreferrer">
+                        ↗ Open
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="shot-status">
+              <span className="pulse" /> {infographicStatus}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Deck results */}
+      {outputType === "deck" && (deck || deckStatus) && (
+        <>
+          <div className="board-header">
+            <h2>{deck?.title ?? "Generating deck"}</h2>
+            <p>
+              {deck
+                ? `${deck.subtitle} · ${deck.slideCount} slides`
+                : deckStatus || "starting…"}
+            </p>
+          </div>
+          {deck ? (
+            <>
+              <div className="deck-outline">
+                {deck.outline.map((s, i) => (
+                  <div key={i} className="deck-slide-card">
+                    <div className="shot-header">
+                      <span className="shot-num">#{String(i + 1).padStart(2, "0")}</span>
+                      <span className="label">{s.title}</span>
+                    </div>
+                    <ul className="deck-bullets">
+                      {s.bullets.map((b, j) => (
+                        <li key={j}>{b}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+              <div className="action-bar">
+                <a className="btn" href={deck.downloadUrl} download={`${slugify(deck.title)}.pptx`}>
+                  ⤓ Download PPTX
+                </a>
+                <a className="btn ghost" href={deck.downloadUrl} target="_blank" rel="noreferrer">
+                  ↗ Open in browser
+                </a>
+              </div>
+            </>
+          ) : (
+            <div className="shot-status">
+              <span className="pulse" /> {deckStatus}
             </div>
           )}
         </>

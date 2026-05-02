@@ -24,6 +24,13 @@ const MIME: Record<string, string> = {
   ".mov": "video/quicktime",
   ".m4v": "video/x-m4v",
   ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
 
 function mimeFor(filePath: string): string {

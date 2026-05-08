@@ -1,49 +1,46 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { AuthDialog } from "./AuthDialog";
 
 /**
- * Sign-in / sign-out widget. Three states:
- *  - Supabase not configured → renders nothing (memory feature is off)
- *  - Configured + signed out → email input + "Send magic link"
- *  - Configured + signed in  → email + "Sign out" button
+ * Header sign-in widget.
+ *  - Supabase not configured  → renders nothing
+ *  - Configured + signed out  → "Sign in" button that opens AuthDialog
+ *  - Configured + signed in   → email + "Sign out" button
+ *
+ * `onUserChange` is held in a ref so the auth subscription effect runs once
+ * (passing it directly in deps caused an infinite re-render loop earlier).
  */
 export function AuthButton({ onUserChange }: { onUserChange?: (u: User | null) => void }) {
   const [client] = useState(() => createSupabaseBrowserClient());
   const [user, setUser] = useState<User | null>(null);
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<string>("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const onUserChangeRef = useRef(onUserChange);
+  useEffect(() => {
+    onUserChangeRef.current = onUserChange;
+  }, [onUserChange]);
 
   useEffect(() => {
     if (!client) return;
     client.auth.getUser().then(({ data }) => {
       setUser(data.user);
-      onUserChange?.(data.user);
+      onUserChangeRef.current?.(data.user);
     });
     const { data: sub } = client.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      onUserChange?.(session?.user ?? null);
+      const next = session?.user ?? null;
+      setUser(next);
+      onUserChangeRef.current?.(next);
+      // Auto-close the dialog the moment auth completes
+      if (next) setDialogOpen(false);
     });
     return () => sub.subscription.unsubscribe();
-  }, [client, onUserChange]);
+  }, [client]);
 
   if (!client) return null;
-
-  async function sendMagicLink(e: React.FormEvent) {
-    e.preventDefault();
-    if (!client || !email.trim()) return;
-    setStatus("sending…");
-    const { error } = await client.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        emailRedirectTo:
-          typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined,
-      },
-    });
-    setStatus(error ? `error: ${error.message}` : "check your email for the link");
-  }
 
   async function signOut() {
     if (!client) return;
@@ -51,10 +48,12 @@ export function AuthButton({ onUserChange }: { onUserChange?: (u: User | null) =
   }
 
   if (user) {
+    const display =
+      (user.user_metadata as { display_name?: string } | null)?.display_name ?? user.email;
     return (
       <div className="auth-row">
         <span className="auth-email" title={user.email ?? undefined}>
-          {user.email}
+          {display}
         </span>
         <button type="button" className="btn ghost sm" onClick={signOut}>
           sign out
@@ -64,17 +63,11 @@ export function AuthButton({ onUserChange }: { onUserChange?: (u: User | null) =
   }
 
   return (
-    <form className="auth-row" onSubmit={sendMagicLink}>
-      <input
-        type="email"
-        required
-        placeholder="your email for magic-link sign-in"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="auth-input"
-      />
-      <button type="submit" className="btn sm">sign in</button>
-      {status && <span className="auth-status">{status}</span>}
-    </form>
+    <div className="auth-row">
+      <button type="button" className="btn sm" onClick={() => setDialogOpen(true)}>
+        Sign in
+      </button>
+      <AuthDialog client={client} open={dialogOpen} onClose={() => setDialogOpen(false)} />
+    </div>
   );
 }

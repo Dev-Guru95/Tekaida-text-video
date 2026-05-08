@@ -78,8 +78,18 @@ export default function Page() {
   const [slideCount, setSlideCount] = useState(8);
   const [chapterCount, setChapterCount] = useState(5);
 
-  // History (Supabase) — refreshKey bumps after each successful save
+  // History (Supabase) — refreshKey bumps after each successful save.
+  // `historyEnabled` controls whether we render the sidebar grid layout at all
+  // (so a disabled feature doesn't reserve a 260px empty column on the left).
   const [historyKey, setHistoryKey] = useState(0);
+  const [historyEnabled, setHistoryEnabled] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/history", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setHistoryEnabled(Boolean(d?.enabled)))
+      .catch(() => setHistoryEnabled(false));
+  }, []);
 
   const recordGeneration = useCallback(
     async (entry: {
@@ -109,6 +119,11 @@ export default function Page() {
     setConcept(item.concept);
     setError(null);
   }, []);
+
+  // Stable identity so AuthButton doesn't see a new prop on every render.
+  // (See the long comment in AuthButton — using an unstable callback there
+  // would cause an infinite render loop.)
+  const bumpHistory = useCallback(() => setHistoryKey((k) => k + 1), []);
 
   useEffect(() => {
     fetch("/api/providers")
@@ -429,8 +444,10 @@ export default function Page() {
   }
 
   return (
-    <main className="layout-grid">
-      <HistorySidebar refreshKey={historyKey} onRestore={restoreHistoryItem} />
+    <main className={historyEnabled ? "layout-grid" : ""}>
+      {historyEnabled && (
+        <HistorySidebar refreshKey={historyKey} onRestore={restoreHistoryItem} />
+      )}
       <div className="layout-main">
       <header className="brand">
         <div className="brand-mark" aria-hidden="true">
@@ -449,7 +466,7 @@ export default function Page() {
           <h1>Tekaida</h1>
           <span className="brand-sub">multi-modal generative studio</span>
         </div>
-        <AuthButton onUserChange={() => setHistoryKey((k) => k + 1)} />
+        <AuthButton onUserChange={bumpHistory} />
         <span className="brand-tag">v0.4 · beta</span>
       </header>
       <p className="subtitle">

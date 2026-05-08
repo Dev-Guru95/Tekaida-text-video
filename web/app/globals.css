@@ -568,6 +568,19 @@ video {
 }
 .auth-status { font-size: 11px; color: var(--accent-2); }
 
+.auth-row.auth-disabled {
+  opacity: 0.7;
+  cursor: help;
+}
+.auth-row.auth-disabled .auth-status {
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
 /* ===== Auth dialog (sign in / sign up modal) ===== */
 
 .auth-overlay {

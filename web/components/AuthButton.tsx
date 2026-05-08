@@ -7,7 +7,9 @@ import { AuthDialog } from "./AuthDialog";
 
 /**
  * Header sign-in widget.
- *  - Supabase not configured  → renders nothing
+ *  - Supabase not configured  → small "auth not configured" hint (was: silent
+ *                               null — that made env-var problems on the
+ *                               deployed host invisible)
  *  - Configured + signed out  → "Sign in" button that opens AuthDialog
  *  - Configured + signed in   → email + "Sign out" button
  *
@@ -40,7 +42,16 @@ export function AuthButton({ onUserChange }: { onUserChange?: (u: User | null) =
     return () => sub.subscription.unsubscribe();
   }, [client]);
 
-  if (!client) return null;
+  if (!client) {
+    return (
+      <div
+        className="auth-row auth-disabled"
+        title="Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your hosting environment, then rebuild."
+      >
+        <span className="auth-status">sign-in disabled · Supabase env not set</span>
+      </div>
+    );
+  }
 
   async function signOut() {
     if (!client) return;

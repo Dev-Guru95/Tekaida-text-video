@@ -18,12 +18,20 @@ export function AuthDialog({
   client,
   open,
   onClose,
+  initialTab = "signin",
 }: {
   client: SupabaseClient;
   open: boolean;
   onClose: () => void;
+  initialTab?: Tab;
 }) {
-  const [tab, setTab] = useState<Tab>("signin");
+  const [tab, setTab] = useState<Tab>(initialTab);
+
+  // When the parent toggles the requested tab (e.g. user clicked "Sign Up"
+  // after the dialog was last closed in sign-in mode), reset to the new tab.
+  useEffect(() => {
+    if (open) setTab(initialTab);
+  }, [open, initialTab]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");

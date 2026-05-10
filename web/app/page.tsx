@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProviderInfo } from "@/lib/providers";
 import type {
@@ -11,7 +12,7 @@ import type {
   StreamEvent,
 } from "@/lib/types";
 import { OUTPUT_TYPES, slugify } from "@/lib/types";
-import { AuthButton } from "@/components/AuthButton";
+import { Navbar } from "@/components/Navbar";
 import { HistorySidebar, type HistoryItem } from "@/components/HistorySidebar";
 
 type ShotState = { status: string; videoUrl?: string; error?: string };
@@ -120,9 +121,8 @@ export default function Page() {
     setError(null);
   }, []);
 
-  // Stable identity so AuthButton doesn't see a new prop on every render.
-  // (See the long comment in AuthButton — using an unstable callback there
-  // would cause an infinite render loop.)
+  // Stable identity so Navbar doesn't see a new prop on every render — the
+  // auth subscription lives behind a ref to avoid an infinite render loop.
   const bumpHistory = useCallback(() => setHistoryKey((k) => k + 1), []);
 
   useEffect(() => {
@@ -449,29 +449,11 @@ export default function Page() {
         <HistorySidebar refreshKey={historyKey} onRestore={restoreHistoryItem} />
       )}
       <div className="layout-main">
-      <header className="brand">
-        <div className="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" width="28" height="28" fill="none">
-            <defs>
-              <linearGradient id="g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#7c8cff" />
-                <stop offset="1" stopColor="#3ddae0" />
-              </linearGradient>
-            </defs>
-            <rect x="2" y="2" width="28" height="28" rx="7" stroke="url(#g)" strokeWidth="2" />
-            <path d="M11 11h10v3h-3.5v9h-3v-9H11z" fill="url(#g)" />
-          </svg>
-        </div>
-        <div className="brand-text">
-          <h1>Tekaida</h1>
-          <span className="brand-sub">multi-modal generative studio</span>
-        </div>
-        <AuthButton onUserChange={bumpHistory} />
-        <span className="brand-tag">v0.4 · beta</span>
-      </header>
+      <Navbar onUserChange={bumpHistory} active="home" />
       <p className="subtitle">
         Turn a one-sentence concept into video, images, decks, infographics, or illustrated books.
         Powered by <strong>Gemini</strong>, <strong>OpenAI</strong>, <strong>HiggsField</strong>, and <strong>Seedance</strong>.
+        Need cinematic camera control, render queues, and credits? <Link href="/build" className="inline-link">Open the Build workspace →</Link>
       </p>
 
       <form className="panel" onSubmit={onSubmit}>

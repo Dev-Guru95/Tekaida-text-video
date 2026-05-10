@@ -28,11 +28,21 @@ services:
 
       # --- Optional: Supabase (enables sign-in + cross-session memory) ---
       # If left blank the app stays anonymous and history is hidden.
+      # SUPABASE_SERVICE_ROLE_KEY is REQUIRED for the /build SaaS workspace
+      # (render queue worker, credits, billing webhook, admin endpoints).
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+      # --- Optional: Stripe (enables credit top-ups in /build → Billing) ---
+      # Without these the workspace runs in demo mode — credits granted by the
+      # Supabase signup-bonus trigger only.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
         sync: false
 
       # --- Non-secret model / endpoint defaults (safe to commit) ---

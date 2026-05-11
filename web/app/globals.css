@@ -226,6 +226,20 @@ main.layout-grid {
 }
 .inline-link:hover { text-decoration: underline; }
 
+/* Navbar auth slot while we resolve who is signed in — prevents the
+   "Sign in / Sign Up" buttons from flashing visible for a beat on every
+   navigation between / and /build. */
+.auth-row.auth-loading {
+  min-width: 80px;
+  opacity: 0.4;
+  animation: authLoadPulse 1s ease-in-out infinite;
+}
+.auth-row.auth-loading .auth-status { letter-spacing: 0.2em; }
+@keyframes authLoadPulse {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.55; }
+}
+
 .subtitle {
   color: var(--muted);
   margin: 6px 0 28px;

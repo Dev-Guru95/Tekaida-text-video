@@ -24,6 +24,11 @@ export function Navbar({
 }) {
   const [client] = useState(() => createSupabaseBrowserClient());
   const [user, setUser] = useState<User | null>(null);
+  // `authChecked` lets us suppress the "Sign in / Sign Up" buttons during the
+  // brief window between mount and the first getUser() resolving — otherwise
+  // every navigation from / to /build (or vice versa) flashes signed-out UI
+  // for a few hundred ms even when the user is logged in.
+  const [authChecked, setAuthChecked] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTab, setDialogTab] = useState<"signin" | "signup">("signin");
 
@@ -33,14 +38,28 @@ export function Navbar({
   }, [onUserChange]);
 
   useEffect(() => {
-    if (!client) return;
+    if (!client) {
+      setAuthChecked(true);
+      return;
+    }
+    // getSession() reads from the local cookie/storage cache synchronously
+    // where possible and resolves much faster than getUser() (which hits the
+    // network). We use getSession for the first paint, then getUser to
+    // validate. Either signal flips authChecked.
+    client.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      setAuthChecked(true);
+      onUserChangeRef.current?.(data.session?.user ?? null);
+    });
     client.auth.getUser().then(({ data }) => {
       setUser(data.user);
+      setAuthChecked(true);
       onUserChangeRef.current?.(data.user);
     });
     const { data: sub } = client.auth.onAuthStateChange((_event, session) => {
       const next = session?.user ?? null;
       setUser(next);
+      setAuthChecked(true);
       onUserChangeRef.current?.(next);
       if (next) setDialogOpen(false);
     });
@@ -95,7 +114,12 @@ export function Navbar({
       <div className="brand-spacer" />
 
       {client ? (
-        user ? (
+        !authChecked ? (
+          // Loading placeholder — same vertical space, no signed-out flash.
+          <div className="auth-row auth-loading" aria-hidden="true">
+            <span className="auth-status">·</span>
+          </div>
+        ) : user ? (
           <div className="auth-row">
             <span
               className="auth-email"

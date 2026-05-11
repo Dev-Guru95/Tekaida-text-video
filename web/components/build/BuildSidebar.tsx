@@ -13,16 +13,17 @@ interface NavItem {
   key: BuildSection;
   label: string;
   hint: string;
-  icon: string;     // simple unicode glyph; designers can swap to a real icon set later
+  icon: string;       // simple unicode glyph; designers can swap to a real icon set later
+  adminOnly?: boolean;
 }
 
 const NAV: NavItem[] = [
-  { key: "workspace", label: "Workspace",   hint: "prompt → render", icon: "▶" },
+  { key: "workspace", label: "Workspace",   hint: "prompt → render",  icon: "▶" },
   { key: "library",   label: "Library",     hint: "your renders",     icon: "▤" },
   { key: "projects",  label: "Projects",    hint: "client folders",   icon: "▣" },
   { key: "billing",   label: "Billing",     hint: "credits + Stripe", icon: "✦" },
-  { key: "api",       label: "API access",  hint: "tokens + docs",    icon: "⌘" },
-  { key: "admin",     label: "Admin",       hint: "queue + tenants",  icon: "◉" },
+  { key: "api",       label: "API access",  hint: "tokens + docs",    icon: "⌘", adminOnly: true },
+  { key: "admin",     label: "Admin",       hint: "queue + tenants",  icon: "◉", adminOnly: true },
   { key: "settings",  label: "Settings",    hint: "preferences",      icon: "✎" },
 ];
 
@@ -30,18 +31,26 @@ const NAV: NavItem[] = [
  * Left rail navigation for the Build workspace. Each section maps to a panel
  * in /build/page.tsx. The sidebar collapses to a top horizontal bar on
  * narrow screens (handled in build.css with a media query).
+ *
+ * Admin-only items (currently Admin + API access) only render when the
+ * signed-in user is on the profiles_admin allow-list — `isAdmin` is sourced
+ * from the credits endpoint, which calls the `is_admin()` SQL function.
  */
 export function BuildSidebar({
   active,
   onChange,
   balance,
   signedIn,
+  isAdmin,
 }: {
   active: BuildSection;
   onChange: (s: BuildSection) => void;
   balance: number;
   signedIn: boolean;
+  isAdmin: boolean;
 }) {
+  const visibleNav = NAV.filter((n) => !n.adminOnly || isAdmin);
+
   return (
     <aside className="build-sidebar" aria-label="Build navigation">
       <div className="bs-section">
@@ -61,7 +70,7 @@ export function BuildSidebar({
       </div>
 
       <nav className="bs-nav">
-        {NAV.map((n) => (
+        {visibleNav.map((n) => (
           <button
             key={n.key}
             type="button"

@@ -25,6 +25,10 @@ import { generateVeo } from "@/lib/gemini-video";
 import { generateSora } from "@/lib/openai-video";
 import { generateHiggsField } from "@/lib/higgsfield-video";
 import { getProvider } from "@/lib/providers";
+import {
+  checkSpendPolicy,
+  estimateWholesaleCostCents,
+} from "./provider-costs";
 import type { AspectRatio, ProviderKey, Resolution, Shot } from "@/lib/types";
 
 export interface SubmitInput {
@@ -112,6 +116,41 @@ export async function submit(input: SubmitInput): Promise<{ jobId: string; credi
     motionSlug: input.motionSlug,
   });
 
+  // ---- Spend guardrails -----------------------------------------------
+  // Three independent checks (margin floor, per-render cap, monthly budget)
+  // all need to pass before we'll accept the job. Same module is used by
+  // the admin spend dashboard so caps stay consistent.
+  const wholesale = estimateWholesaleCostCents(
+    input.provider,
+    input.duration,
+    input.resolution,
+  );
+
+  // Read current-month spend for this provider. If the view doesn't exist
+  // yet (migration not run), default to 0 so we don't block submissions —
+  // the per-render and margin checks still apply.
+  let spentThisMonthCents = 0;
+  const { data: spendRow } = await svc
+    .from("provider_spend_this_month")
+    .select("spent_cents")
+    .eq("provider", input.provider)
+    .maybeSingle();
+  if (spendRow && typeof spendRow.spent_cents === "number") {
+    spentThisMonthCents = spendRow.spent_cents;
+  }
+
+  const violations = checkSpendPolicy({
+    provider: input.provider,
+    estimateCents: wholesale.cents,
+    retailCredits: creditsCost,
+    spentThisMonthCents,
+  });
+  if (violations.length > 0) {
+    // Surface the first violation's message — they're already user-facing.
+    throw new QueueError(violations[0].message, 402);
+  }
+  // ---------------------------------------------------------------------
+
   const fullPrompt = assemblePrompt({
     prompt: input.prompt,
     cameraSlug: input.cameraSlug,
@@ -143,6 +182,7 @@ export async function submit(input: SubmitInput): Promise<{ jobId: string; credi
       },
       duration: input.duration,
       credits_cost: creditsCost,
+      wholesale_cost_cents: wholesale.cents,
     })
     .select()
     .single();

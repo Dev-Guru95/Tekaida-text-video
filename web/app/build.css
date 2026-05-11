@@ -701,6 +701,75 @@ main.build-main {
 .admin-stat-danger  { border-color: rgba(248, 113, 113, 0.40); }
 .admin-stat-danger .admin-stat-value { color: #ffc4c4; }
 
+/* ==================== Provider spend bars ==================== */
+
+.spend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 4px 0 8px;
+}
+.spend-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.spend-card.spend-tone-warn   { border-color: rgba(251, 191, 36, 0.45); }
+.spend-card.spend-tone-danger { border-color: rgba(248, 113, 113, 0.55); }
+
+.spend-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.spend-provider {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  color: var(--muted);
+}
+.spend-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+.spend-amount {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.spend-budget {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.spend-progress {
+  width: 100%;
+  height: 6px;
+  background: var(--panel-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.spend-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 400ms ease;
+}
+.spend-tone-warn .spend-progress-bar {
+  background: linear-gradient(90deg, #fbbf24, #ffb14d);
+}
+.spend-tone-danger .spend-progress-bar {
+  background: linear-gradient(90deg, #f87171, #ff8c42);
+}
+.spend-foot {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 /* ==================== Settings ==================== */
 
 .settings-grid {

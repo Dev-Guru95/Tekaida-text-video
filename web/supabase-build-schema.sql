@@ -338,3 +338,34 @@ $$;
 
 revoke all on function public.debit_credits(uuid, int, text, uuid) from public;
 grant execute on function public.debit_credits(uuid, int, text, uuid) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 8. wholesale cost tracking  (so we can see live burn vs. budget)
+--
+-- Each completed render writes the estimated wholesale cost (in USD cents)
+-- the provider charged us. We sum it per provider per calendar month to
+-- enforce the monthly-budget guardrail in lib/build/provider-costs.ts.
+-- ---------------------------------------------------------------------------
+
+alter table public.render_jobs
+  add column if not exists wholesale_cost_cents int;
+
+create index if not exists render_jobs_provider_month_idx
+  on public.render_jobs (provider, created_at);
+
+-- View: current-calendar-month wholesale spend per provider.
+-- Used by submit() to refuse renders that would push us over budget, and by
+-- the Admin tab to render the spend dashboard.
+create or replace view public.provider_spend_this_month as
+  select
+    provider,
+    coalesce(sum(wholesale_cost_cents), 0)::int as spent_cents,
+    count(*)::int as render_count
+  from public.render_jobs
+  where created_at >= date_trunc('month', now())
+    and status in ('done', 'processing')
+  group by provider;
+
+-- The view is exposed via PostgREST. RLS doesn't apply to views by default,
+-- but the underlying render_jobs RLS would block non-admin reads. We only
+-- expose this view through the admin endpoint, which uses the service role.

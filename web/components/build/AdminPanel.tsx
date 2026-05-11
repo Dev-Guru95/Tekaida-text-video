@@ -2,10 +2,19 @@
 
 import { useEffect, useState } from "react";
 
+interface SpendRow {
+  provider: string;
+  spent_cents: number;
+  budget_cents: number;
+  pct: number;
+  render_count: number;
+}
+
 interface AdminData {
   queue: { queued: number; processing: number; done24h: number; errors24h: number };
   recentErrors: { id: string; user_id: string; provider: string; error: string | null; created_at: string }[];
   topSpenders: { user_id: string; lifetime_topup: number; balance: number }[];
+  spend?: SpendRow[];
 }
 
 export function AdminPanel() {
@@ -67,6 +76,20 @@ export function AdminPanel() {
         <Stat label="errors · 24h" value={data.queue.errors24h} accent="danger" />
       </div>
 
+      <h3 className="ws-h3">Provider spend · this month</h3>
+      {data.spend && data.spend.length > 0 ? (
+        <div className="spend-grid">
+          {data.spend.map((s) => (
+            <SpendBar key={s.provider} row={s} />
+          ))}
+        </div>
+      ) : (
+        <div className="ws-empty">
+          <span className="ws-empty-glyph">·</span>
+          <span>No renders billed yet this month.</span>
+        </div>
+      )}
+
       <h3 className="ws-h3">Recent failures</h3>
       {data.recentErrors.length === 0 ? (
         <div className="ws-empty"><span className="ws-empty-glyph">·</span><span>No errors in the recent window.</span></div>
@@ -116,6 +139,27 @@ function Stat({ label, value, accent }: { label: string; value: number; accent: 
     <div className={`admin-stat admin-stat-${accent}`}>
       <span className="admin-stat-label">{label}</span>
       <span className="admin-stat-value">{value}</span>
+    </div>
+  );
+}
+
+function SpendBar({ row }: { row: SpendRow }) {
+  const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
+  const pct = Math.min(100, row.pct);
+  const tone = pct >= 90 ? "danger" : pct >= 70 ? "warn" : "ok";
+  return (
+    <div className={`spend-card spend-tone-${tone}`}>
+      <div className="spend-head">
+        <span className="spend-provider">{row.provider}</span>
+        <span className="spend-meta">{row.render_count} render{row.render_count === 1 ? "" : "s"}</span>
+      </div>
+      <div className="spend-amount">
+        {usd(row.spent_cents)} <span className="spend-budget">/ {usd(row.budget_cents)}</span>
+      </div>
+      <div className="spend-progress">
+        <div className="spend-progress-bar" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="spend-foot">{pct}% of monthly budget</div>
     </div>
   );
 }

@@ -13,6 +13,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
+import { monthlyBudgetCents } from "@/lib/build/provider-costs";
+import type { ProviderKey } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +47,7 @@ export async function GET() {
     { count: errors24h },
     { data: recentErrors },
     { data: topSpenders },
+    { data: spendRows },
   ] = await Promise.all([
     svc.from("render_jobs").select("id", { count: "exact", head: true }).eq("status", "queued"),
     svc.from("render_jobs").select("id", { count: "exact", head: true }).eq("status", "processing"),
@@ -69,7 +72,30 @@ export async function GET() {
       .select("user_id, lifetime_topup, balance")
       .order("lifetime_topup", { ascending: false })
       .limit(10),
+    svc.from("provider_spend_this_month").select("provider, spent_cents, render_count"),
   ]);
+
+  // Pair each provider's current-month spend with the configured budget so
+  // the UI can render a single bar per provider.
+  const providers: ProviderKey[] = ["seedance", "higgsfield", "gemini", "chatgpt"];
+  const spendByProvider = new Map<string, { spent_cents: number; render_count: number }>();
+  for (const row of spendRows ?? []) {
+    spendByProvider.set(row.provider, {
+      spent_cents: Number(row.spent_cents ?? 0),
+      render_count: Number(row.render_count ?? 0),
+    });
+  }
+  const spend = providers.map((p) => {
+    const row = spendByProvider.get(p) ?? { spent_cents: 0, render_count: 0 };
+    const budget_cents = monthlyBudgetCents(p);
+    return {
+      provider: p,
+      spent_cents: row.spent_cents,
+      budget_cents,
+      pct: budget_cents > 0 ? Math.min(100, Math.round((row.spent_cents / budget_cents) * 100)) : 0,
+      render_count: row.render_count,
+    };
+  });
 
   return NextResponse.json({
     queue: {
@@ -80,5 +106,6 @@ export async function GET() {
     },
     recentErrors: recentErrors ?? [],
     topSpenders: topSpenders ?? [],
+    spend,
   });
 }

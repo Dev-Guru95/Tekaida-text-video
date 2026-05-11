@@ -29,6 +29,30 @@ export default function BuildPage() {
   const [signedIn, setSignedIn] = useState<boolean>(false);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [creditsKey, setCreditsKey] = useState(0);
+  const [authError, setAuthError] = useState<{ code: string; description: string } | null>(null);
+
+  // Read auth-callback errors from the query string. Lives on /build because
+  // that's where most signups happen — the buildCallbackUrl() helper in
+  // AuthDialog pins the post-confirmation redirect to the page that opened
+  // the dialog. If the user signed up on /, they'll see the same banner there
+  // (we surface it via a generic ?auth_error reader once we add it to / too).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("auth_error");
+    if (err) {
+      setAuthError({
+        code: err,
+        description: params.get("auth_error_description") ?? "",
+      });
+      // Strip the params so a page reload doesn't keep re-showing the banner.
+      params.delete("auth_error");
+      params.delete("auth_error_description");
+      const rest = params.toString();
+      const cleaned = `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`;
+      window.history.replaceState(null, "", cleaned);
+    }
+  }, []);
 
   // Restore tab from URL hash.
   useEffect(() => {
@@ -79,6 +103,28 @@ export default function BuildPage() {
   return (
     <main className="build-main">
       <Navbar active="build" onUserChange={refreshCredits} />
+
+      {authError && (
+        <div className="ws-error" role="alert" style={{ marginTop: 12 }}>
+          <strong>Sign-in didn't complete:</strong> {authError.description || authError.code}
+          <button
+            type="button"
+            onClick={() => setAuthError(null)}
+            style={{
+              float: "right",
+              background: "transparent",
+              border: 0,
+              color: "inherit",
+              cursor: "pointer",
+              fontSize: 18,
+              lineHeight: 1,
+            }}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className="build-grid">
         <BuildSidebar

@@ -6,6 +6,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 type Tab = "signin" | "signup";
 
 /**
+ * Build the post-confirmation redirect URL passed to Supabase. We include
+ * `next=<current path>` so the user lands back on whichever page they were
+ * on (typically `/build`) after clicking the email link, instead of always
+ * landing on `/`.
+ */
+function buildCallbackUrl(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const next = window.location.pathname + window.location.search;
+  return `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
+}
+
+/**
  * Modal sign-in / sign-up dialog. Supports:
  *   - Email + password sign in
  *   - Email + password sign up (with optional display name)
@@ -74,10 +86,7 @@ export function AuthDialog({
           email: email.trim(),
           password,
           options: {
-            emailRedirectTo:
-              typeof window !== "undefined"
-                ? `${window.location.origin}/auth/callback`
-                : undefined,
+            emailRedirectTo: buildCallbackUrl(),
             data: displayName.trim() ? { display_name: displayName.trim() } : undefined,
           },
         });
@@ -118,8 +127,7 @@ export function AuthDialog({
     const { error } = await client.auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo:
-          typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined,
+        emailRedirectTo: buildCallbackUrl(),
       },
     });
     setSubmitting(false);
@@ -136,8 +144,7 @@ export function AuthDialog({
     setInfo(null);
     setSubmitting(true);
     const { error } = await client.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo:
-        typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined,
+      redirectTo: buildCallbackUrl(),
     });
     setSubmitting(false);
     if (error) setErrorMsg(error.message);
